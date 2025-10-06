@@ -7,6 +7,8 @@ from app.api.dependencies import verify_api_key, check_rate_limit
 from app.database import Database, supabase  # ← IMPORTANTE: importar supabase
 from app.features import extract_features
 from app.utils import sanitize_input, calculate_spam_score_explanation
+from app.ml_model import spam_detector
+
 
 router = APIRouter(prefix="/api/v1", tags=["spam-detection"])
 
