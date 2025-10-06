@@ -11,9 +11,10 @@ build/
 dist/
 *.egg-info/
 
-# Environment variables
+# Environment variables - CRÍTICO
 .env
 .env.local
+.env.*.local
 
 # IDEs
 .vscode/
