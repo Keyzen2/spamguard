@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Optional
 
 class Settings(BaseSettings):
-    # Supabase - Railway las inyectará automáticamente
+    # Supabase
     supabase_url: str
     supabase_key: str
     supabase_service_key: str
@@ -13,22 +13,22 @@ class Settings(BaseSettings):
     environment: str = "production"
     debug: bool = False
     
-    # ML - Renombrado para evitar conflicto con 'model_'
-    ml_model_path: str = "models/"  # ← CAMBIO AQUÍ
+    # ML
+    ml_model_path: str = "models/"
     retrain_threshold: int = 100
     min_samples_for_retrain: int = 50
-
-    # Admin secret para endpoints sensibles
-    admin_secret: str = "tu_clave_super_secreta_aqui_123456"
     
-    # Redis (opcional por ahora, lo configuraremos después)
+    # Redis
     redis_url: Optional[str] = None
+    
+    # Admin (para endpoints sensibles)
+    admin_secret: str = "tu_clave_super_secreta_aqui_123456"
     
     model_config = {
         "env_file": ".env",
         "env_file_encoding": 'utf-8',
         "case_sensitive": False,
-        "protected_namespaces": ('settings_',)  # ← Y ESTO
+        "protected_namespaces": ('settings_',)
     }
 
 @lru_cache()
