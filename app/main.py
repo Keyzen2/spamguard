@@ -1,116 +1,98 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
-from typing import Optional, List
-import uvicorn
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from contextlib import asynccontextmanager
+import time
 from datetime import datetime
-import numpy as np
 
+from app.config import get_settings
+from app.api.routes import router
+from app.ml_model import spam_detector
+
+settings = get_settings()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Eventos de inicio y cierre de la aplicación
+    """
+    # Startup
+    print("🚀 Iniciando SpamGuard AI API...")
+    print(f"📊 Environment: {settings.environment}")
+    print(f"🤖 Modelo: {'Entrenado' if spam_detector.is_trained else 'Baseline (reglas)'}")
+    
+    yield
+    
+    # Shutdown
+    print("👋 Cerrando SpamGuard AI API...")
+
+# Crear aplicación FastAPI
 app = FastAPI(
     title="SpamGuard AI API",
-    description="API de detección de spam con ML",
-    version="1.0.0"
+    description="API inteligente de detección de spam con Machine Learning",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
-# CORS para WordPress
+# Configurar CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, especificar dominios
+    allow_origins=["*"],  # En producción: especificar dominios permitidos
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Modelos Pydantic
-class CommentInput(BaseModel):
-    content: str
-    author: str
-    author_email: Optional[EmailStr] = None
-    author_url: Optional[str] = None
-    author_ip: str
-    post_id: int
-    user_agent: Optional[str] = None
-    referer: Optional[str] = None
+# Middleware para logging de requests
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    
+    response = await call_next(request)
+    
+    process_time = time.time() - start_time
+    
+    print(f"📝 {request.method} {request.url.path} - {response.status_code} - {process_time:.3f}s")
+    
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    return response
 
-class PredictionResponse(BaseModel):
-    is_spam: bool
-    confidence: float
-    spam_score: float
-    reasons: List[str]
-    comment_id: str
+# Manejador de errores de validación
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Error de validación",
+            "errors": exc.errors()
+        }
+    )
 
-class FeedbackInput(BaseModel):
-    comment_id: str
-    is_spam: bool  # La clasificación correcta
+# Incluir rutas
+app.include_router(router)
 
-# Dependency para validar API key
-async def verify_api_key(x_api_key: str = Header(...)):
-    # Validar contra Supabase
-    if not await is_valid_api_key(x_api_key):
-        raise HTTPException(status_code=403, detail="Invalid API Key")
-    return x_api_key
-
+# Ruta raíz
 @app.get("/")
 async def root():
-    return {"message": "SpamGuard AI API", "status": "online"}
+    return {
+        "service": "SpamGuard AI API",
+        "version": "1.0.0",
+        "status": "online",
+        "timestamp": datetime.utcnow().isoformat(),
+        "docs": "/docs",
+        "health": "/api/v1/health"
+    }
 
-@app.post("/api/v1/analyze", response_model=PredictionResponse)
-async def analyze_comment(
-    comment: CommentInput,
-    api_key: str = Depends(verify_api_key)
-):
-    """
-    Analiza un comentario y predice si es spam
-    """
-    try:
-        # 1. Extraer características
-        features = await extract_features(comment)
-        
-        # 2. Obtener sitio del API key
-        site_id = await get_site_id_from_api_key(api_key)
-        
-        # 3. Predicción con modelo
-        prediction = await predict_spam(features, site_id)
-        
-        # 4. Guardar en base de datos
-        comment_id = await save_analysis(comment, features, prediction, site_id)
-        
-        # 5. Retornar resultado
-        return PredictionResponse(
-            is_spam=prediction['is_spam'],
-            confidence=prediction['confidence'],
-            spam_score=prediction['score'],
-            reasons=prediction['reasons'],
-            comment_id=comment_id
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/feedback")
-async def submit_feedback(
-    feedback: FeedbackInput,
-    api_key: str = Depends(verify_api_key)
-):
-    """
-    Recibe feedback del usuario para mejorar el modelo
-    """
-    site_id = await get_site_id_from_api_key(api_key)
-    await queue_feedback(feedback, site_id)
-    
-    # Verificar si es momento de reentrenar
-    await check_retrain_trigger(site_id)
-    
-    return {"status": "feedback_received", "queued_for_training": True}
-
-@app.get("/api/v1/stats")
-async def get_stats(api_key: str = Depends(verify_api_key)):
-    """
-    Obtiene estadísticas del sitio
-    """
-    site_id = await get_site_id_from_api_key(api_key)
-    stats = await get_site_statistics(site_id)
-    return stats
-
+# Para desarrollo local
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True  # Hot reload en desarrollo
+    )
