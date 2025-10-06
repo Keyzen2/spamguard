@@ -296,24 +296,22 @@ async def register_new_site(
     site_url: str,
     admin_email: EmailStr,
 ):
-    """
-    **Registra un nuevo sitio y genera API key**
-    """
     try:
-        # Generar site_id único basado en URL
         import hashlib
         site_id = hashlib.sha256(site_url.encode()).hexdigest()[:16]
         
-        # Verificar si ya existe - CORREGIDO
         existing = supabase.table('site_stats')\
-            .select('site_id')\
+            .select('api_key')\
             .eq('site_id', site_id)\
             .execute()
         
         if existing.data:
-            raise HTTPException(
-                status_code=400,
-                detail="Este sitio ya está registrado"
+            # En lugar de error, devolver la API key existente
+            return ApiKeyResponse(
+                site_id=site_id,
+                api_key=existing.data[0]['api_key'],
+                created_at=existing.data[0].get('created_at', datetime.utcnow().isoformat()),
+                message="Este sitio ya esta registrado. Aqui esta tu API key."
             )
         
         # Crear nuevo registro
