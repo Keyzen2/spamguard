@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     ml_model_path: str = "models/"  # ← CAMBIO AQUÍ
     retrain_threshold: int = 100
     min_samples_for_retrain: int = 50
+
+    # Admin secret para endpoints sensibles
+    admin_secret: str = "tu_clave_super_secreta_aqui_123456"
     
     # Redis (opcional por ahora, lo configuraremos después)
     redis_url: Optional[str] = None
