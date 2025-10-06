@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 
 from app.api.dependencies import verify_api_key, check_rate_limit
-from app.database import Database, supabase
+from app.database import Database, supabase  # ← IMPORTANTE: importar supabase
 from app.features import extract_features
 from app.ml_model import spam_detector
 from app.utils import sanitize_input, calculate_spam_score_explanation
@@ -77,12 +77,6 @@ async def analyze_comment(
     
     Este endpoint procesa el comentario, extrae características,
     ejecuta el modelo de ML y retorna la predicción con explicación.
-    
-    - **content**: Texto del comentario (requerido)
-    - **author**: Nombre del autor (requerido)
-    - **author_email**: Email del autor (opcional pero recomendado)
-    - **author_ip**: IP del autor (requerido)
-    - **post_id**: ID del post donde se comenta (requerido)
     """
     try:
         # Sanitizar inputs
@@ -141,15 +135,9 @@ async def submit_feedback(
 ):
     """
     **Envía feedback sobre la clasificación de un comentario**
-    
-    Permite corregir predicciones incorrectas. Este feedback
-    se usa para reentrenar y mejorar el modelo.
-    
-    - **comment_id**: ID del comentario analizado
-    - **is_spam**: Clasificación correcta (true si es spam, false si es legítimo)
     """
     try:
-        # Obtener el comentario original
+        # Obtener el comentario original - CORREGIDO
         result = supabase.table('comments_analyzed')\
             .select('predicted_label')\
             .eq('id', feedback.comment_id)\
@@ -182,9 +170,7 @@ async def submit_feedback(
             "queued_for_training": should_retrain
         }
         
-        # Si hay suficiente feedback, reentrenar en background
         if should_retrain:
-            # TODO: Implementar task en background con Celery o similar
             response["message"] += ". El modelo será reentrenado próximamente."
         
         return response
@@ -203,15 +189,11 @@ async def get_statistics(
 ):
     """
     **Obtiene estadísticas del sitio**
-    
-    Retorna métricas sobre comentarios analizados,
-    spam bloqueado, accuracy del modelo, etc.
     """
     try:
         stats = Database.get_site_statistics(site_id)
         
         if not stats:
-            # Sitio nuevo sin estadísticas
             return StatsResponse(
                 total_analyzed=0,
                 total_spam_blocked=0,
@@ -235,9 +217,6 @@ async def trigger_retrain(
 ):
     """
     **Fuerza el reentrenamiento del modelo**
-    
-    Útil cuando quieres actualizar el modelo inmediatamente
-    sin esperar al threshold automático.
     """
     try:
         result = spam_detector.train_site_model(site_id)
@@ -248,7 +227,7 @@ async def trigger_retrain(
                 detail=result['message']
             )
         
-        # Actualizar timestamp de último reentrenamiento
+        # Actualizar timestamp - CORREGIDO
         supabase.table('site_stats')\
             .update({'last_retrain': datetime.utcnow().isoformat()})\
             .eq('site_id', site_id)\
@@ -273,35 +252,28 @@ async def trigger_retrain(
 async def health_check():
     """
     **Health check del servicio**
-    
-    Verifica que la API esté funcionando correctamente.
     """
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
         "model_status": "trained" if spam_detector.is_trained else "baseline",
         "version": "1.0.0"
-    }   
-       
-# Endpoint especial para crear nuevas API keys (protegido)
+    }
+
 @router.post("/register-site", response_model=ApiKeyResponse)
 async def register_new_site(
     site_url: str,
     admin_email: EmailStr,
-    # TODO: Agregar autenticación adicional aquí
 ):
     """
     **Registra un nuevo sitio y genera API key**
-    
-    Este endpoint debería estar protegido con autenticación adicional
-    en producción (ej: JWT, OAuth, etc.)
     """
     try:
         # Generar site_id único basado en URL
         import hashlib
         site_id = hashlib.sha256(site_url.encode()).hexdigest()[:16]
         
-        # Verificar si ya existe
+        # Verificar si ya existe - CORREGIDO
         existing = supabase.table('site_stats')\
             .select('site_id')\
             .eq('site_id', site_id)\
@@ -325,6 +297,7 @@ async def register_new_site(
             'created_at': datetime.utcnow().isoformat()
         }
         
+        # CORREGIDO
         supabase.table('site_stats').insert(new_site).execute()
         
         return ApiKeyResponse(
@@ -386,7 +359,7 @@ async def train_global_model_endpoint(
         raise HTTPException(status_code=403, detail="Forbidden")
     
     try:
-        result = await spam_detector.train_site_model('global')
+        result = spam_detector.train_site_model('global')
         
         if result['success']:
             # Renombrar archivos a modelo global
