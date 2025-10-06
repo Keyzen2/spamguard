@@ -6,7 +6,6 @@ from datetime import datetime
 from app.api.dependencies import verify_api_key, check_rate_limit
 from app.database import Database, supabase  # ← IMPORTANTE: importar supabase
 from app.features import extract_features
-from app.ml_model import spam_detector
 from app.utils import sanitize_input, calculate_spam_score_explanation
 
 router = APIRouter(prefix="/api/v1", tags=["spam-detection"])
@@ -353,6 +352,12 @@ async def train_global_model_endpoint(
     Endpoint temporal para entrenar modelo global
     IMPORTANTE: Proteger muy bien - Solo uso administrativo
     """
+    # AGREGAR ESTOS IMPORTS AQUÍ DENTRO
+    from app.config import get_settings
+    from app.ml_model import spam_detector
+    import shutil
+    import os
+    
     settings = get_settings()
     
     if x_admin_secret != settings.admin_secret:
@@ -362,9 +367,6 @@ async def train_global_model_endpoint(
         result = spam_detector.train_site_model('global')
         
         if result['success']:
-            # Renombrar archivos a modelo global
-            import shutil
-            import os
             
             old_model = os.path.join(settings.ml_model_path, 'model_global.joblib')
             old_scaler = os.path.join(settings.ml_model_path, 'scaler_global.joblib')
