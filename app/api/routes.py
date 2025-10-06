@@ -315,7 +315,7 @@ async def register_new_site(
             detail=f"Error registrando sitio: {str(e)}"
         )
         
-@router.post("/api/v1/admin/init-training-data")
+@router.post("/admin/init-training-data")
 async def init_training_data(
     x_admin_secret: str = Header(..., alias="X-Admin-Secret")
 ):
@@ -345,7 +345,7 @@ async def init_training_data(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/v1/admin/train-model")
+@router.post("/admin/train-model")
 async def train_global_model_endpoint(
     x_admin_secret: str = Header(..., alias="X-Admin-Secret")
 ):
