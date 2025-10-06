@@ -1,130 +1,147 @@
 import re
-from typing import Dict, List
+from typing import Dict
 from urllib.parse import urlparse
 import hashlib
 from datetime import datetime
 
 class FeatureExtractor:
-    """
-    Extrae características relevantes de un comentario para el modelo ML
-    """
+    """Extrae características relevantes de un comentario"""
     
-    # Lista de palabras comunes en spam
     SPAM_KEYWORDS = [
-        'viagra', 'cialis', 'pharmacy', 'casino', 'poker',
+        'viagra', 'cialis', 'pharmacy', 'casino', 'poker', 'lottery',
         'loan', 'mortgage', 'credit', 'earn money', 'work from home',
-        'click here', 'buy now', 'limited offer', 'act now',
-        'free money', 'weight loss', 'bitcoin', 'crypto'
+        'click here', 'buy now', 'limited offer', 'act now', 'call now',
+        'free money', 'weight loss', 'bitcoin', 'crypto', 'investment',
+        'million dollars', 'prince', 'inheritance', 'beneficiary',
+        'congratulations', 'winner', 'prizes', 'gift card'
     ]
     
-    # Dominios de email sospechosos
     SUSPICIOUS_DOMAINS = [
         'tempmail.com', 'guerrillamail.com', '10minutemail.com',
-        'mailinator.com', 'throwaway.email'
+        'mailinator.com', 'throwaway.email', 'temp-mail.org',
+        'sharklasers.com', 'guerrillamail.info'
     ]
     
     def __init__(self):
-        self.suspicious_tlds = ['.ru', '.cn', '.tk', '.ml', '.ga']
+        self.suspicious_tlds = ['.ru', '.cn', '.tk', '.ml', '.ga', '.cf', '.gq']
     
-    async def extract(self, comment: CommentInput) -> Dict:
-        """
-        Extrae todas las características del comentario
-        """
+    def extract(self, comment_data: Dict) -> Dict:
+        """Extrae todas las características"""
+        
+        content = comment_data.get('content', '')
+        author = comment_data.get('author', '')
+        author_email = comment_data.get('author_email', '')
+        author_url = comment_data.get('author_url', '')
+        author_ip = comment_data.get('author_ip', '')
+        user_agent = comment_data.get('user_agent', '')
+        
         features = {}
+        content_lower = content.lower()
         
-        # === CARACTERÍSTICAS DE TEXTO ===
-        content = comment.content.lower()
+        # === TEXTO ===
+        features['text_length'] = len(content)
+        words = content.split()
+        features['word_count'] = len(words)
+        features['avg_word_length'] = sum(len(w) for w in words) / max(len(words), 1)
         
-        # Básicas
-        features['text_length'] = len(comment.content)
-        features['word_count'] = len(comment.content.split())
-        features['avg_word_length'] = (
-            sum(len(word) for word in comment.content.split()) / 
-            max(len(comment.content.split()), 1)
+        # URLs
+        urls = re.findall(
+            r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
+            content
         )
-        
-        # URLs y enlaces
-        urls = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', 
-                         comment.content)
         features['url_count'] = len(urls)
         features['has_url'] = len(urls) > 0
-        features['url_to_text_ratio'] = len(''.join(urls)) / max(len(comment.content), 1)
+        features['url_to_text_ratio'] = len(''.join(urls)) / max(len(content), 1)
         
-        # Análisis de URLs
         if urls:
-            features['unique_domains'] = len(set(urlparse(url).netloc for url in urls))
+            domains = [urlparse(url).netloc for url in urls]
+            features['unique_domains'] = len(set(domains))
             features['has_suspicious_tld'] = any(
-                any(url.endswith(tld) for tld in self.suspicious_tlds) 
-                for url in urls
+                any(domain.endswith(tld) for tld in self.suspicious_tlds)
+                for domain in domains
             )
         else:
             features['unique_domains'] = 0
-            features['has_suspicious_tld'] = False
+            features['has_suspicious_tld'] = 0
         
         # Palabras spam
-        spam_word_count = sum(1 for keyword in self.SPAM_KEYWORDS if keyword in content)
-        features['spam_keyword_count'] = spam_word_count
-        features['has_spam_keywords'] = spam_word_count > 0
+        spam_count = sum(1 for kw in self.SPAM_KEYWORDS if kw in content_lower)
+        features['spam_keyword_count'] = spam_count
+        features['spam_keyword_density'] = spam_count / max(len(words), 1)
         
-        # Caracteres especiales y patrones
-        features['special_char_ratio'] = len(re.findall(r'[^a-zA-Z0-9\s]', comment.content)) / max(len(comment.content), 1)
-        features['uppercase_ratio'] = sum(1 for c in comment.content if c.isupper()) / max(len(comment.content), 1)
-        features['digit_ratio'] = sum(1 for c in comment.content if c.isdigit()) / max(len(comment.content), 1)
-        features['exclamation_count'] = comment.content.count('!')
-        features['question_count'] = comment.content.count('?')
+        # Caracteres
+        features['special_char_ratio'] = len(re.findall(r'[^a-zA-Z0-9\s]', content)) / max(len(content), 1)
+        features['uppercase_ratio'] = sum(1 for c in content if c.isupper()) / max(len(content), 1)
+        features['digit_ratio'] = sum(1 for c in content if c.isdigit()) / max(len(content), 1)
+        features['exclamation_count'] = content.count('!')
+        features['question_count'] = content.count('?')
+        features['has_html'] = bool(re.search(r'<[^>]+>', content))
         
-        # === CARACTERÍSTICAS DEL AUTOR ===
+        # Palabras repetidas
+        word_freq = {}
+        for word in words:
+            word_freq[word] = word_freq.get(word, 0) + 1
+        features['max_word_repetition'] = max(word_freq.values()) if word_freq else 0
+        
+        # === AUTOR ===
+        features['author_length'] = len(author)
+        features['author_has_numbers'] = bool(re.search(r'\d', author))
+        features['author_all_caps'] = author.isupper() if author else False
+        features['author_is_short'] = len(author) < 3
         
         # Email
-        if comment.author_email:
-            email_domain = comment.author_email.split('@')[1] if '@' in comment.author_email else ''
-            features['email_domain_suspicious'] = email_domain in self.SUSPICIOUS_DOMAINS
-            features['email_length'] = len(comment.author_email)
-            
-            # Hash del email para patrones (privacidad)
-            features['email_hash'] = hashlib.md5(comment.author_email.encode()).hexdigest()[:8]
+        if author_email:
+            email_parts = author_email.split('@')
+            if len(email_parts) == 2:
+                email_domain = email_parts[1]
+                features['email_domain_suspicious'] = email_domain in self.SUSPICIOUS_DOMAINS
+                features['email_has_numbers'] = bool(re.search(r'\d', email_parts[0]))
+                features['email_length'] = len(author_email)
+            else:
+                features['email_domain_suspicious'] = True
+                features['email_has_numbers'] = False
+                features['email_length'] = 0
         else:
-            features['has_email'] = False
             features['email_domain_suspicious'] = False
+            features['email_has_numbers'] = False
             features['email_length'] = 0
         
-        # Nombre del autor
-        features['author_length'] = len(comment.author)
-        features['author_has_numbers'] = bool(re.search(r'\d', comment.author))
-        features['author_all_caps'] = comment.author.isupper() if comment.author else False
-        
         # URL del autor
-        if comment.author_url:
-            features['has_author_url'] = True
-            author_domain = urlparse(comment.author_url).netloc
-            features['author_url_suspicious_tld'] = any(
-                author_domain.endswith(tld) for tld in self.suspicious_tlds
-            )
+        if author_url:
+            features['has_author_url'] = 1
+            try:
+                author_domain = urlparse(author_url).netloc
+                features['author_url_suspicious'] = any(
+                    author_domain.endswith(tld) for tld in self.suspicious_tlds
+                )
+            except:
+                features['author_url_suspicious'] = True
         else:
-            features['has_author_url'] = False
-            features['author_url_suspicious_tld'] = False
+            features['has_author_url'] = 0
+            features['author_url_suspicious'] = False
         
-        # === CARACTERÍSTICAS DE COMPORTAMIENTO ===
-        
-        # IP
-        features['ip_hash'] = hashlib.md5(comment.author_ip.encode()).hexdigest()[:8]
-        
-        # Hora del día (spam suele venir en horarios específicos)
+        # === COMPORTAMIENTO ===
         hour = datetime.now().hour
         features['hour_of_day'] = hour
-        features['is_night_time'] = hour < 6 or hour > 23
+        features['is_night_time'] = 1 if (hour < 6 or hour > 23) else 0
+        features['is_weekend'] = 1 if datetime.now().weekday() >= 5 else 0
         
         # User agent
-        if comment.user_agent:
-            features['has_user_agent'] = True
-            features['is_bot'] = bool(re.search(r'bot|crawler|spider', comment.user_agent.lower()))
+        if user_agent:
+            features['has_user_agent'] = 1
+            features['is_bot'] = 1 if re.search(r'bot|crawler|spider|scraper', user_agent.lower()) else 0
         else:
-            features['has_user_agent'] = False
-            features['is_bot'] = False
+            features['has_user_agent'] = 0
+            features['is_bot'] = 0
+        
+        # Convertir booleanos a int para el modelo
+        for key, value in features.items():
+            if isinstance(value, bool):
+                features[key] = 1 if value else 0
         
         return features
 
-# Función helper
-async def extract_features(comment: CommentInput) -> Dict:
+def extract_features(comment_data: Dict) -> Dict:
+    """Función helper para extraer características"""
     extractor = FeatureExtractor()
-    return await extractor.extract(comment)
+    return extractor.extract(comment_data)
