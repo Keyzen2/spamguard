@@ -111,7 +111,7 @@ async def analyze_comment(
         )
         
         # 4. Guardar análisis en base de datos
-        comment_id = await Database.save_comment_analysis(
+        comment_id = Database.save_comment_analysis(
             site_id=site_id,
             comment_data=comment_data,
             features=features,
@@ -150,7 +150,7 @@ async def submit_feedback(
     """
     try:
         # Obtener el comentario original
-        result = await supabase.table('comments_analyzed')\
+        result = supabase.table('comments_analyzed')\
             .select('predicted_label')\
             .eq('id', feedback.comment_id)\
             .eq('site_id', site_id)\
@@ -166,7 +166,7 @@ async def submit_feedback(
         new_label = 'spam' if feedback.is_spam else 'ham'
         
         # Guardar feedback
-        await Database.save_feedback(
+        Database.save_feedback(
             comment_id=feedback.comment_id,
             site_id=site_id,
             correct_label=new_label,
@@ -174,7 +174,7 @@ async def submit_feedback(
         )
         
         # Verificar si es momento de reentrenar
-        should_retrain = await Database.check_retrain_needed(site_id)
+        should_retrain = Database.check_retrain_needed(site_id)
         
         response = {
             "status": "success",
@@ -208,7 +208,7 @@ async def get_statistics(
     spam bloqueado, accuracy del modelo, etc.
     """
     try:
-        stats = await Database.get_site_statistics(site_id)
+        stats = Database.get_site_statistics(site_id)
         
         if not stats:
             # Sitio nuevo sin estadísticas
@@ -240,7 +240,7 @@ async def trigger_retrain(
     sin esperar al threshold automático.
     """
     try:
-        result = await spam_detector.train_site_model(site_id)
+        result = spam_detector.train_site_model(site_id)
         
         if not result['success']:
             raise HTTPException(
@@ -249,7 +249,7 @@ async def trigger_retrain(
             )
         
         # Actualizar timestamp de último reentrenamiento
-        await supabase.table('site_stats')\
+        supabase.table('site_stats')\
             .update({'last_retrain': datetime.utcnow().isoformat()})\
             .eq('site_id', site_id)\
             .execute()
@@ -302,7 +302,7 @@ async def register_new_site(
         site_id = hashlib.sha256(site_url.encode()).hexdigest()[:16]
         
         # Verificar si ya existe
-        existing = await supabase.table('site_stats')\
+        existing = supabase.table('site_stats')\
             .select('site_id')\
             .eq('site_id', site_id)\
             .execute()
@@ -325,7 +325,7 @@ async def register_new_site(
             'created_at': datetime.utcnow().isoformat()
         }
         
-        await supabase.table('site_stats').insert(new_site).execute()
+        supabase.table('site_stats').insert(new_site).execute()
         
         return ApiKeyResponse(
             site_id=site_id,
