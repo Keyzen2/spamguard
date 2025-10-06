@@ -281,72 +281,8 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "model_status": "trained" if spam_detector.is_trained else "baseline",
         "version": "1.0.0"
-    }
-    
-@router.post("/api/v1/admin/init-training-data")
-async def init_training_data(
-    admin_secret: str = Header(..., alias="X-Admin-Secret")
-):
-    """
-    Endpoint temporal para inicializar datos de entrenamiento
-    IMPORTANTE: Eliminar después de usar o proteger muy bien
-    """
-    # Secreto de administrador (configúralo en Railway)
-    if admin_secret != get_settings().admin_secret:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    
-    from scripts.init_training_data import insert_training_data
-    
-    try:
-        result = insert_training_data()
-        return {"status": "success", "message": "Training data initialized", "result": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/api/v1/admin/train-model")
-async def train_global_model_endpoint(
-    admin_secret: str = Header(..., alias="X-Admin-Secret")
-):
-    """
-    Endpoint temporal para entrenar modelo global
-    IMPORTANTE: Eliminar después de usar o proteger muy bien
-    """
-    if admin_secret != get_settings().admin_secret:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    
-    from app.ml_model import spam_detector
-    
-    try:
-        result = await spam_detector.train_site_model('global')
-        
-        if result['success']:
-            # Renombrar archivos
-            import shutil
-            import os
-            from app.config import get_settings
-            
-            settings = get_settings()
-            old_model = os.path.join(settings.ml_model_path, 'model_global.joblib')
-            old_scaler = os.path.join(settings.ml_model_path, 'scaler_global.joblib')
-            new_model = os.path.join(settings.ml_model_path, 'global_model.joblib')
-            new_scaler = os.path.join(settings.ml_model_path, 'global_scaler.joblib')
-            
-            os.makedirs(settings.ml_model_path, exist_ok=True)
-            
-            if os.path.exists(old_model):
-                shutil.copy(old_model, new_model)
-                shutil.copy(old_scaler, new_scaler)
-        
-        return {
-            "status": "success" if result['success'] else "error",
-            "metrics": result.get('metrics'),
-            "samples_used": result.get('samples_used'),
-            "message": result.get('message')
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-        
+    }   
+       
 # Endpoint especial para crear nuevas API keys (protegido)
 @router.post("/register-site", response_model=ApiKeyResponse)
 async def register_new_site(
@@ -405,3 +341,74 @@ async def register_new_site(
             status_code=500,
             detail=f"Error registrando sitio: {str(e)}"
         )
+        
+@router.post("/api/v1/admin/init-training-data")
+async def init_training_data(
+    x_admin_secret: str = Header(..., alias="X-Admin-Secret")
+):
+    """
+    Endpoint temporal para inicializar datos de entrenamiento
+    IMPORTANTE: Proteger muy bien - Solo uso administrativo
+    """
+    settings = get_settings()
+    
+    if x_admin_secret != settings.admin_secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    try:
+        # Importar la función del script
+        import sys
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+        
+        from scripts.init_training_data import insert_training_data
+        
+        result = insert_training_data()
+        return {
+            "status": "success",
+            "message": "Training data initialized",
+            "data": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/v1/admin/train-model")
+async def train_global_model_endpoint(
+    x_admin_secret: str = Header(..., alias="X-Admin-Secret")
+):
+    """
+    Endpoint temporal para entrenar modelo global
+    IMPORTANTE: Proteger muy bien - Solo uso administrativo
+    """
+    settings = get_settings()
+    
+    if x_admin_secret != settings.admin_secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    try:
+        result = await spam_detector.train_site_model('global')
+        
+        if result['success']:
+            # Renombrar archivos a modelo global
+            import shutil
+            import os
+            
+            old_model = os.path.join(settings.ml_model_path, 'model_global.joblib')
+            old_scaler = os.path.join(settings.ml_model_path, 'scaler_global.joblib')
+            new_model = os.path.join(settings.ml_model_path, 'global_model.joblib')
+            new_scaler = os.path.join(settings.ml_model_path, 'global_scaler.joblib')
+            
+            os.makedirs(settings.ml_model_path, exist_ok=True)
+            
+            if os.path.exists(old_model):
+                shutil.copy(old_model, new_model)
+                shutil.copy(old_scaler, new_scaler)
+        
+        return {
+            "status": "success" if result['success'] else "error",
+            "metrics": result.get('metrics'),
+            "samples_used": result.get('samples_used'),
+            "message": result.get('message')
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
