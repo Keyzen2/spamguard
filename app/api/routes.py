@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 
 from app.api.dependencies import verify_api_key, check_rate_limit
-from app.database import Database
+from app.database import Database, supabase
 from app.features import extract_features
 from app.ml_model import spam_detector
 from app.utils import sanitize_input, calculate_spam_score_explanation
@@ -150,7 +150,7 @@ async def submit_feedback(
     """
     try:
         # Obtener el comentario original
-        result = await Database.supabase.table('comments_analyzed')\
+        result = await supabase.table('comments_analyzed')\
             .select('predicted_label')\
             .eq('id', feedback.comment_id)\
             .eq('site_id', site_id)\
@@ -249,7 +249,7 @@ async def trigger_retrain(
             )
         
         # Actualizar timestamp de último reentrenamiento
-        await Database.supabase.table('site_stats')\
+        await supabase.table('site_stats')\
             .update({'last_retrain': datetime.utcnow().isoformat()})\
             .eq('site_id', site_id)\
             .execute()
@@ -302,7 +302,7 @@ async def register_new_site(
         site_id = hashlib.sha256(site_url.encode()).hexdigest()[:16]
         
         # Verificar si ya existe
-        existing = await Database.supabase.table('site_stats')\
+        existing = await supabase.table('site_stats')\
             .select('site_id')\
             .eq('site_id', site_id)\
             .execute()
@@ -325,7 +325,7 @@ async def register_new_site(
             'created_at': datetime.utcnow().isoformat()
         }
         
-        await Database.supabase.table('site_stats').insert(new_site).execute()
+        await supabase.table('site_stats').insert(new_site).execute()
         
         return ApiKeyResponse(
             site_id=site_id,
