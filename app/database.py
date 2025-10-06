@@ -16,7 +16,7 @@ class Database:
     """Clase para manejar todas las operaciones de base de datos"""
     
     @staticmethod
-    async def save_comment_analysis(
+    def save_comment_analysis(  # ← SIN async
         site_id: str,
         comment_data: Dict,
         features: Dict,
@@ -43,15 +43,15 @@ class Database:
             'created_at': datetime.utcnow().isoformat()
         }
         
-        result = supabase.table('comments_analyzed').insert(data).execute()
+        supabase.table('comments_analyzed').insert(data).execute()  # ← SIN await
         
         # Actualizar estadísticas
-        await Database.update_site_stats(site_id, prediction['is_spam'])
+        Database.update_site_stats(site_id, prediction['is_spam'])  # ← SIN await
         
         return comment_id
     
     @staticmethod
-    async def update_site_stats(site_id: str, is_spam: bool):
+    def update_site_stats(site_id: str, is_spam: bool):  # ← SIN async
         """Actualiza las estadísticas del sitio"""
         
         # Obtener stats actuales
@@ -82,7 +82,7 @@ class Database:
             supabase.table('site_stats').insert(new_stats).execute()
     
     @staticmethod
-    async def validate_api_key(api_key: str) -> Optional[str]:
+    def validate_api_key(api_key: str) -> Optional[str]:  # ← SIN async
         """Valida una API key y retorna el site_id"""
         result = supabase.table('site_stats').select('site_id').eq('api_key', api_key).execute()
         
@@ -91,7 +91,7 @@ class Database:
         return None
     
     @staticmethod
-    async def save_feedback(comment_id: str, site_id: str, correct_label: str, old_label: str):
+    def save_feedback(comment_id: str, site_id: str, correct_label: str, old_label: str):  # ← SIN async
         """Guarda feedback del usuario"""
         
         feedback_data = {
@@ -111,17 +111,15 @@ class Database:
         }).eq('id', comment_id).execute()
     
     @staticmethod
-    async def get_site_statistics(site_id: str) -> Dict:
+    def get_site_statistics(site_id: str) -> Dict:  # ← SIN async
         """Obtiene estadísticas del sitio"""
         result = supabase.table('site_stats').select('*').eq('site_id', site_id).execute()
         
         if result.data:
             stats = result.data[0]
             
-            # Calcular accuracy si hay suficientes datos
             total_analyzed = stats['total_analyzed']
             if total_analyzed > 0:
-                # Obtener comentarios con feedback
                 feedback_result = supabase.table('comments_analyzed')\
                     .select('predicted_label, actual_label')\
                     .eq('site_id', site_id)\
@@ -151,7 +149,7 @@ class Database:
         return None
     
     @staticmethod
-    async def get_training_data(site_id: str, limit: int = 1000) -> List[Dict]:
+    def get_training_data(site_id: str, limit: int = 1000) -> List[Dict]:  # ← SIN async
         """Obtiene datos para reentrenamiento"""
         result = supabase.table('comments_analyzed')\
             .select('features, actual_label')\
@@ -169,7 +167,7 @@ class Database:
         return f"sg_{secrets.token_urlsafe(32)}"
     
     @staticmethod
-    async def check_retrain_needed(site_id: str) -> bool:
+    def check_retrain_needed(site_id: str) -> bool:  # ← SIN async
         """Verifica si es necesario reentrenar el modelo"""
         result = supabase.table('feedback_queue')\
             .select('id', count='exact')\
