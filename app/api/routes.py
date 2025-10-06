@@ -183,7 +183,37 @@ async def submit_feedback(
             status_code=500,
             detail=f"Error guardando feedback: {str(e)}"
         )
-
+        
+@router.get("/check-site")
+async def check_existing_site(site_url: str):
+    """
+    Verifica si un sitio ya esta registrado y devuelve su API key
+    IMPORTANTE: Solo para recuperacion, validar por email seria mas seguro
+    """
+    try:
+        import hashlib
+        site_id = hashlib.sha256(site_url.encode()).hexdigest()[:16]
+        
+        result = supabase.table('site_stats')\
+            .select('api_key')\
+            .eq('site_id', site_id)\
+            .execute()
+        
+        if result.data:
+            return {
+                "exists": True,
+                "api_key": result.data[0]['api_key'],
+                "message": "Sitio ya registrado"
+            }
+        
+        return {
+            "exists": False,
+            "message": "Sitio no encontrado"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
 @router.get("/stats", response_model=StatsResponse)
 async def get_statistics(
     site_id: str = Depends(verify_api_key)
