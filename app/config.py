@@ -13,19 +13,20 @@ class Settings(BaseSettings):
     environment: str = "production"
     debug: bool = False
     
-    # ML
-    model_path: str = "models/"
+    # ML - Renombrado para evitar conflicto con 'model_'
+    ml_model_path: str = "models/"  # ← CAMBIO AQUÍ
     retrain_threshold: int = 100
     min_samples_for_retrain: int = 50
     
     # Redis (opcional por ahora, lo configuraremos después)
     redis_url: Optional[str] = None
     
-    class Config:
-        env_file = ".env"  # Solo para desarrollo local
-        env_file_encoding = 'utf-8'
-        case_sensitive = False
-        # Railway inyecta las variables directamente, no necesita .env
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": 'utf-8',
+        "case_sensitive": False,
+        "protected_namespaces": ('settings_',)  # ← Y ESTO
+    }
 
 @lru_cache()
 def get_settings():
