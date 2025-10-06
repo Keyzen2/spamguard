@@ -1,246 +1,223 @@
 """
-Script para cargar dataset inicial de spam y entrenar modelo global
+Script para cargar dataset inicial - Versión callable
 """
-import pandas as pd
-import requests
 from supabase import create_client
-import os
 from datetime import datetime
 import uuid
+import os
 
-# Configuración
-SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
-
-supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-
-# Dataset público de spam de YouTube (muy bueno para comentarios)
-DATASET_URL = "https://raw.githubusercontent.com/nealrs/yt-spam/master/Youtube-Spam-Dataset.csv"
-
-def download_spam_dataset():
-    """Descarga dataset público de spam"""
-    print("📥 Descargando dataset de spam...")
-    
-    # Alternativas de datasets:
-    # 1. YouTube Spam Dataset
-    # 2. SMS Spam Collection
-    # 3. Email Spam Dataset
-    
-    df = pd.read_csv(DATASET_URL)
-    print(f"✅ Dataset descargado: {len(df)} comentarios")
-    
-    return df
-
-def prepare_synthetic_comments():
-    """Crea comentarios sintéticos de spam y ham para entrenamiento inicial"""
-    
-    spam_comments = [
-        # Spam obvio
-        "BUY VIAGRA NOW! CHEAP PRICES! Click here: http://spam.ru",
-        "Make money fast! Work from home! Visit casino.tk for details!!!",
-        "Congratulations! You won $1,000,000! Click here to claim prize",
-        "Free Bitcoin! Cryptocurrency investment! lottery.ml Join now!!!",
-        "CHEAP LOANS! BAD CREDIT OK! Apply now at loans-fast.cn",
-        "Weight loss miracle! Lose 50 pounds in 1 week! pharmacy.ga",
-        "Hot singles in your area! Click here dating.tk NOW!!!",
-        "Prince needs help transferring inheritance. Email me for millions!",
-        "CLICK HERE NOW! Limited time offer! BUY NOW ACT FAST!!!",
+def get_spam_comments():
+    """Retorna lista de comentarios spam"""
+    return [
+        "Buy cheap Viagra online! Best prices guaranteed. Click here now: http://pharmacy-cheap.ru",
+        "CIALIS 20mg $0.99 per pill! FDA approved. Order now http://meds-online.tk Free shipping worldwide!!!",
+        "Generic Viagra, Cialis, Levitra. Lowest prices! http://cheapmeds.cn Fast delivery 24/7",
+        "Weight loss pills that work! Lose 30 pounds in 30 days! http://dietpills.ml",
+        "Make $5000 per week from home! No experience needed! Click: http://makemoney-fast.ru",
+        "Get rich quick! Forex trading secrets revealed! http://forex-secrets.tk Join now!!!",
+        "Loan approved! Bad credit OK! $50,000 instant approval http://loans-fast.cn",
+        "Bitcoin investment opportunity! Double your money in 30 days! http://crypto-invest.ml",
+        "🎰 Best online casino! $5000 welcome bonus! Play now: http://casino-online.tk",
+        "Win real money playing slots! Free spins bonus! http://slots-win.cn Click here!!!",
+        "Poker online - 200% deposit bonus! Join tournament now! http://poker-pro.ml",
+        "Rolex watches $99! Exact copies! http://watches-replica.tk Free shipping worldwide",
+        "Designer handbags 90% off! Gucci, Prada, Louis Vuitton http://bags-cheap.cn",
+        "Congratulations! You've been selected! Claim your $1000 Amazon gift card: http://prize.ru",
+        "YOU ARE A WINNER! Click to claim your prize! http://winner.tk ACT NOW!!!",
+        "Your package is waiting! Delivery failed. Update address: http://delivery.cn",
+        "Check out these amazing deals! http://deal1.com http://deal2.com http://deal3.com http://deal4.com",
+        "<a href='http://spam.com'>Click here</a> for amazing deals! <b>BUY NOW</b>",
+        "AMAZING OPPORTUNITY!!! CLICK HERE NOW!!! http://spam.ru LIMITED TIME ONLY!!!",
+        "FREE FREE FREE!!! DONT MISS OUT!!! http://free-stuff.tk GET YOURS TODAY!!!",
+        "best best best deals deals deals click click click here here here http://spam.ru now now now",
+        "Great post! Check out my website for similar content: http://seo-spam.com",
+        "Hack any Facebook account! 100% working! http://hack-fb.ru Download now!",
+        "Free Netflix accounts! Unlimited access! http://free-netflix.tk Get yours!",
+        "Instagram followers - 10000 for $5! http://followers.cn Instant delivery!",
+        "Meet hot singles in your area! http://dating.ru No credit card needed!",
+        "Live webcams! Beautiful girls online now! http://cams.tk Join free!",
+        "Work from home and earn $500 daily! No boss, no schedule! http://workhome.ga",
+        "Credit card debt forgiveness! Eliminate your debt fast! http://debt-relief.ru",
+        "Sports betting - bet $10 get $100 free! http://betting.ga Register today!!!",
+        "Ray-Ban sunglasses $19.99! Authentic quality! http://sunglasses.ml ORDER NOW!!!",
+        "iPhone 15 Pro $299! Brand new unlocked! http://phones-cheap.ga Limited stock!!!",
+        "Your account has been suspended! Verify now: http://verify-account.ml URGENT!!!",
+        "IRS Notice: Tax refund pending. Click to claim: http://irs-refund.ga",
+        "<script>alert('spam')</script> Visit http://malware.ru for free software",
+        "BEST DEAL EVER!!! BUY NOW!!! http://deals.cn HURRY UP!!!",
+        "Nice article. I wrote about this too: http://my-blog.ru http://my-site.tk Visit please!",
+        "購買便宜藥品 http://cheap-meds.cn 免費送貨",
+        "first comment lol",
+        "nice post visit my blog http://spam.com",
+        "cool story bro http://mysite.ru",
+        "F1RST!!!1! http://first.tk",
+        "Essay writing service! A+ guaranteed! http://essays.ml Plagiarism free!",
+        "Lottery winner! Claim your prize now! http://lottery-winner.ru YOU WON!!!",
+        "Visit my sites: http://site1.ru http://site2.tk http://site3.cn http://site4.ml CLICK ALL!!!",
+        "buy buy buy cheap cheap cheap http://cheap.tk fast fast fast delivery delivery delivery",
+        "Interesting. See also: http://link1.com, http://link2.com, http://link3.com",
+        "Male enhancement pills. Increase size naturally! http://enhancement.ga 100% guaranteed",
+        "Заработок в интернете! http://zarabotok.ru Быстро и легко!",
         "Earn $5000 per week working from home! No experience needed!",
-        
-        # Spam moderado
-        "Check out my website for amazing deals http://mysite.com",
-        "Great post! Visit my blog at http://blog1.com and http://blog2.com",
-        "Nice article. Buy my ebook here: http://ebook.com",
-        "Interesting. See more at http://link1.com http://link2.com http://link3.com",
-        "Thanks for sharing! <a href='spam.com'>Click here</a>",
-        
-        # Spam sutil
-        "Great post!!!!!!!!",
-        "AWESOME ARTICLE!!!!! LOVE IT!!!!!",
-        "niceeeee poooost greaaaat joooob",
-        "first comment lol subscribe to my channel",
-        "F1RST C0MM3NT!!!1!",
+        "Limited time offer! BUY NOW ACT FAST!!! http://urgent-deals.ru",
     ]
-    
-    ham_comments = [
-        # Comentarios legítimos largos
-        "This is a really insightful article. I particularly appreciated your analysis of the economic impacts. The data you presented clearly supports your conclusions. Thank you for sharing this valuable perspective.",
-        "Great explanation! I've been struggling to understand this concept for weeks, and your clear breakdown finally made it click for me. The examples you used were perfect.",
-        "I have a different perspective on this issue. While I agree with most of your points, I think we also need to consider the environmental impact. What are your thoughts on that aspect?",
-        "Thank you for writing this. As someone who works in this field, I can confirm that your observations are spot-on. This is exactly what we're seeing in practice.",
-        "Excellent tutorial! I followed your steps and it worked perfectly. One suggestion: it might be helpful to add a troubleshooting section for common errors.",
-        
-        # Comentarios legítimos cortos
-        "Thanks for sharing this!",
-        "Very helpful, appreciate it.",
-        "Interesting perspective.",
-        "Great work!",
-        "This helped me a lot, thank you.",
-        "Well explained.",
-        "I learned something new today.",
-        "Bookmarking this for later.",
-        "Could you elaborate on the second point?",
-        "What source did you use for this data?",
-        
-        # Comentarios con preguntas legítimas
-        "How does this compare to the previous version?",
-        "What would you recommend for beginners?",
-        "Has anyone tried implementing this in production?",
-        "Are there any prerequisites for this approach?",
-        "What are the potential drawbacks of this method?",
-    ]
-    
-    comments = []
-    
-    # Agregar spam
-    for i, content in enumerate(spam_comments):
-        comments.append({
-            'content': content,
-            'author': f'Spammer{i}',
-            'author_email': f'spam{i}@tempmail.com' if i % 2 == 0 else None,
-            'is_spam': True
-        })
-    
-    # Agregar ham
-    for i, content in enumerate(ham_comments):
-        comments.append({
-            'content': content,
-            'author': f'User{i}',
-            'author_email': f'user{i}@gmail.com' if i % 2 == 0 else None,
-            'is_spam': False
-        })
-    
-    return comments
 
-def insert_training_data(comments, site_id='global'):
-    """Inserta datos de entrenamiento en Supabase"""
-    
-    print(f"💾 Insertando {len(comments)} comentarios en la base de datos...")
-    
-    # Importar extractor de features
-    import sys
-    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+def get_ham_comments():
+    """Retorna lista de comentarios legítimos"""
+    return [
+        "This is an excellent article! I've been struggling with this problem for weeks, and your explanation finally made it clear. The examples you provided were particularly helpful. Thank you so much for sharing your knowledge!",
+        "Great explanation! I implemented your solution and it worked perfectly. One small suggestion: you might want to add a note about the potential memory issues when dealing with large datasets.",
+        "Thank you for this comprehensive guide. I have a question about the third step - could you elaborate on why you chose that particular approach? I'm curious about the trade-offs.",
+        "I've been following your blog for months and this is one of your best posts yet. The way you break down complex concepts into digestible pieces is really helpful.",
+        "As someone who works in this field professionally, I can confirm that your analysis is spot-on. You've captured the nuances that many other articles miss.",
+        "This is helpful, but I'm having trouble with the configuration step. When I run the command, I get an error message about missing dependencies. Has anyone else encountered this?",
+        "Interesting perspective. Have you considered the impact of recent changes in the API? I'm wondering if your approach would still work with the latest version.",
+        "Could you provide more details about the performance implications? I'm working on a similar project and need to optimize for speed.",
+        "What would you recommend for beginners who are just starting out? Is there a simplified version of this approach?",
+        "Thank you for posting this! Saved me hours of troubleshooting.",
+        "Exactly what I was looking for. Bookmarking for future reference.",
+        "This helped me solve a critical bug in production. You're a lifesaver!",
+        "Clear, concise, and practical. More tutorials should be like this.",
+        "I'd like to add that this approach also works well with Docker containers. Here's how I adapted it for my use case...",
+        "For anyone interested, I've created a GitHub repository with additional examples based on this tutorial.",
+        "An alternative method that might be useful is to use the built-in library function instead. It's less flexible but simpler to implement.",
+        "Well explained, thanks!",
+        "This is gold. Thank you.",
+        "Bookmarked!",
+        "Very helpful, appreciated.",
+        "Great work!",
+        "Thanks for sharing this.",
+        "I tried this approach last week and it completely transformed my workflow. The time savings have been incredible.",
+        "We implemented this solution at our company and it's been running smoothly for three months now.",
+        "I was skeptical at first, but after testing thoroughly, I'm convinced this is the right approach.",
+        "Good article overall, but I think there's a small error in step 4. The variable should be initialized before the loop.",
+        "While I agree with most of your points, I have a different opinion on the security implications.",
+        "Solid content, but the example code could be more readable. Consider adding comments.",
+        "I commented earlier about the error I was getting. Just wanted to update that I figured it out - it was a version mismatch issue.",
+        "Coming back to this article six months later and it's still relevant. I've shared it with my entire team.",
+        "As a teacher, I find this explanation perfect for introducing students to the concept.",
+        "From a business perspective, the cost-benefit analysis you provided is very useful.",
+        "I'm a visual learner, so the diagrams you included were especially helpful.",
+        "The progressive difficulty level is just right for learning this topic.",
+        "This will help me make a case to management for implementing this solution.",
+        "Any chance you could add a video walkthrough as well?",
+        "I appreciate how you addressed common pitfalls that beginners might encounter.",
+        "The real-world examples made this much easier to understand.",
+        "Following your guide step by step worked flawlessly. Thank you!",
+        "This is now my go-to resource for this topic.",
+        "I've recommended this article to several colleagues already.",
+    ]
+
+def insert_training_data():
+    """Función principal para insertar datos"""
+    from app.config import get_settings
     from app.features import extract_features
     
-    inserted = 0
+    settings = get_settings()
+    supabase = create_client(settings.supabase_url, settings.supabase_service_key)
     
-    for comment in comments:
+    spam_comments = get_spam_comments()
+    ham_comments = get_ham_comments()
+    
+    total_inserted = 0
+    errors = []
+    
+    # Insertar SPAM
+    for i, content in enumerate(spam_comments, 1):
         try:
-            # Preparar datos del comentario
             comment_data = {
-                'content': comment['content'],
-                'author': comment.get('author', 'Anonymous'),
-                'author_email': comment.get('author_email', None),
-                'author_ip': '127.0.0.1',
+                'content': content,
+                'author': f'SpamBot{i}',
+                'author_email': f'spam{i}@tempmail.com' if i % 3 == 0 else None,
+                'author_ip': f'192.168.{i % 255}.{(i * 7) % 255}',
                 'post_id': 1,
-                'author_url': None,
-                'user_agent': 'Training Script',
+                'author_url': f'http://spam{i}.ru' if i % 4 == 0 else None,
+                'user_agent': 'SpamBot/1.0' if i % 5 == 0 else 'Mozilla/5.0',
                 'referer': None
             }
             
-            # Extraer features
             features = extract_features(comment_data)
             
-            # Determinar label
-            label = 'spam' if comment['is_spam'] else 'ham'
-            
-            # Insertar en base de datos
             data = {
                 'id': str(uuid.uuid4()),
-                'site_id': site_id,
-                'comment_content': comment['content'],
+                'site_id': 'global',
+                'comment_content': content,
                 'comment_author': comment_data['author'],
                 'comment_author_email': comment_data.get('author_email'),
-                'comment_author_ip': '127.0.0.1',
-                'comment_author_url': None,
+                'comment_author_ip': comment_data['author_ip'],
+                'comment_author_url': comment_data.get('author_url'),
                 'post_id': 1,
                 'features': features,
-                'predicted_label': label,  # En este caso conocemos el label real
-                'actual_label': label,  # Marcamos como ya verificado
+                'predicted_label': 'spam',
+                'actual_label': 'spam',
                 'prediction_confidence': 1.0,
-                'user_agent': 'Training Script',
+                'user_agent': comment_data.get('user_agent'),
                 'created_at': datetime.utcnow().isoformat()
             }
             
             supabase.table('comments_analyzed').insert(data).execute()
-            inserted += 1
+            total_inserted += 1
             
-            if inserted % 10 == 0:
-                print(f"  ✓ {inserted}/{len(comments)} insertados...")
-                
         except Exception as e:
-            print(f"  ✗ Error insertando comentario: {e}")
-            continue
+            errors.append(f"Spam #{i}: {str(e)}")
     
-    print(f"✅ {inserted} comentarios insertados correctamente")
+    # Insertar HAM
+    for i, content in enumerate(ham_comments, 1):
+        try:
+            comment_data = {
+                'content': content,
+                'author': f'User{i}',
+                'author_email': f'user{i}@gmail.com',
+                'author_ip': f'10.0.{i % 255}.{(i * 3) % 255}',
+                'post_id': 1,
+                'author_url': f'https://user{i}.com' if i % 5 == 0 else None,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'referer': 'https://google.com'
+            }
+            
+            features = extract_features(comment_data)
+            
+            data = {
+                'id': str(uuid.uuid4()),
+                'site_id': 'global',
+                'comment_content': content,
+                'comment_author': comment_data['author'],
+                'comment_author_email': comment_data.get('author_email'),
+                'comment_author_ip': comment_data['author_ip'],
+                'comment_author_url': comment_data.get('author_url'),
+                'post_id': 1,
+                'features': features,
+                'predicted_label': 'ham',
+                'actual_label': 'ham',
+                'prediction_confidence': 1.0,
+                'user_agent': comment_data.get('user_agent'),
+                'created_at': datetime.utcnow().isoformat()
+            }
+            
+            supabase.table('comments_analyzed').insert(data).execute()
+            total_inserted += 1
+            
+        except Exception as e:
+            errors.append(f"Ham #{i}: {str(e)}")
     
-    return inserted
-
-def update_site_stats(site_id='global', total_comments=0):
-    """Actualiza o crea estadísticas del sitio global"""
-    
-    # Contar spam y ham
-    spam_count = supabase.table('comments_analyzed')\
-        .select('id', count='exact')\
-        .eq('site_id', site_id)\
-        .eq('actual_label', 'spam')\
-        .execute()
-    
-    ham_count = supabase.table('comments_analyzed')\
-        .select('id', count='exact')\
-        .eq('site_id', site_id)\
-        .eq('actual_label', 'ham')\
-        .execute()
-    
-    stats_data = {
-        'site_id': site_id,
-        'total_analyzed': total_comments,
-        'total_spam_blocked': spam_count.count if spam_count.count else 0,
-        'total_ham_approved': ham_count.count if ham_count.count else 0,
-        'accuracy': 1.0,  # Dataset de entrenamiento es 100% correcto
-        'api_key': f'sg_global_training_{uuid.uuid4().hex[:16]}',
-        'created_at': datetime.utcnow().isoformat()
-    }
-    
-    # Intentar insertar o actualizar
+    # Actualizar stats
     try:
+        stats_data = {
+            'site_id': 'global',
+            'total_analyzed': total_inserted,
+            'total_spam_blocked': len(spam_comments),
+            'total_ham_approved': len(ham_comments),
+            'accuracy': 1.0,
+            'api_key': f'sg_global_training_{uuid.uuid4().hex[:16]}',
+            'created_at': datetime.utcnow().isoformat()
+        }
         supabase.table('site_stats').upsert(stats_data).execute()
-        print(f"✅ Estadísticas actualizadas para site_id: {site_id}")
     except Exception as e:
-        print(f"⚠️ Error actualizando estadísticas: {e}")
-
-def main():
-    """Función principal"""
-    print("🚀 Inicializando datos de entrenamiento...")
-    print("=" * 60)
+        errors.append(f"Stats: {str(e)}")
     
-    # Opción 1: Comentarios sintéticos (más rápido)
-    print("\n📝 Creando comentarios sintéticos...")
-    comments = prepare_synthetic_comments()
-    
-    # Opción 2: Descargar dataset público (descomentar si quieres)
-    # try:
-    #     df = download_spam_dataset()
-    #     # Procesar el dataset según su formato
-    #     # ...
-    # except Exception as e:
-    #     print(f"⚠️ No se pudo descargar dataset público: {e}")
-    #     print("Usando comentarios sintéticos...")
-    #     comments = prepare_synthetic_comments()
-    
-    # Insertar datos
-    total = insert_training_data(comments, site_id='global')
-    
-    # Actualizar estadísticas
-    update_site_stats(site_id='global', total_comments=total)
-    
-    print("\n" + "=" * 60)
-    print("✅ ¡Inicialización completada!")
-    print(f"📊 Total de comentarios de entrenamiento: {total}")
-    print("\n🎯 Próximos pasos:")
-    print("1. Entrenar el modelo global con estos datos")
-    print("2. Hacer deploy del modelo entrenado")
-    print("3. Los nuevos sitios empezarán con este modelo base")
-
-if __name__ == "__main__":
-    main()
+    return {
+        'total_inserted': total_inserted,
+        'spam_count': len(spam_comments),
+        'ham_count': len(ham_comments),
+        'errors': errors
+    }
