@@ -344,6 +344,49 @@ async def register_new_site(
             detail=f"Error registrando sitio: {str(e)}"
         )
         
+@router.post("/admin/retrain-model")
+async def retrain_model_admin(api_key: str = Depends(verify_api_key)):
+    """
+    Endpoint para reentrenar el modelo (solo admin)
+    Requiere API key con permisos de admin
+    """
+    try:
+        import subprocess
+        
+        # Ejecutar script de reentrenamiento
+        result = subprocess.run(
+            ['python', 'app/retrain_model.py'],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minutos max
+        )
+        
+        if result.returncode == 0:
+            # Recargar modelo en memoria
+            spam_detector.load_model('models/spam_model.pkl')
+            
+            return {
+                "success": True,
+                "message": "Model retrained successfully",
+                "output": result.stdout
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Retraining failed: {result.stderr}"
+            )
+            
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=408,
+            detail="Retraining timeout (>5 min)"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )  
+        
 @router.post("/admin/init-training-data")
 async def init_training_data(
     x_admin_secret: str = Header(..., alias="X-Admin-Secret")
