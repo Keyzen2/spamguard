@@ -1,16 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, Header, BackgroundTasks
 from typing import List, Optional
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
+import logging
 
-from app.api.dependencies import verify_api_key, check_rate_limit
-from app.database import Database, supabase  # ← IMPORTANTE: importar supabase
+from app.api.dependencies import (
+    verify_api_key, 
+    check_rate_limit,
+    verify_admin_api_key,
+    check_admin_rate_limit,
+    acquire_retrain_lock,
+    release_retrain_lock,
+    get_retrain_status
+)
+from app.database import Database, supabase
 from app.features import extract_features
 from app.utils import sanitize_input, calculate_spam_score_explanation
 from app.ml_model import spam_detector
-
+from app.config import get_settings
 
 router = APIRouter(prefix="/api/v1", tags=["spam-detection"])
+logger = logging.getLogger(__name__)
 
 # === MODELOS PYDANTIC ===
 
@@ -64,7 +74,7 @@ class ApiKeyResponse(BaseModel):
     created_at: str
     message: str
 
-# === ENDPOINTS ===
+# === ENDPOINTS PÚBLICOS ===
 
 @router.post("/analyze", response_model=PredictionResponse)
 async def analyze_comment(
@@ -75,9 +85,6 @@ async def analyze_comment(
 ):
     """
     **Analiza un comentario y predice si es spam**
-    
-    Este endpoint procesa el comentario, extrae características,
-    ejecuta el modelo de ML y retorna la predicción con explicación.
     """
     try:
         # Sanitizar inputs
@@ -128,6 +135,7 @@ async def analyze_comment(
             detail=f"Error procesando comentario: {str(e)}"
         )
 
+
 @router.post("/feedback")
 async def submit_feedback(
     feedback: FeedbackInput,
@@ -138,7 +146,7 @@ async def submit_feedback(
     **Envía feedback sobre la clasificación de un comentario**
     """
     try:
-        # Obtener el comentario original - CORREGIDO
+        # Obtener el comentario original
         result = supabase.table('comments_analyzed')\
             .select('predicted_label')\
             .eq('id', feedback.comment_id)\
@@ -183,12 +191,67 @@ async def submit_feedback(
             status_code=500,
             detail=f"Error guardando feedback: {str(e)}"
         )
+
+
+@router.post("/register-site", response_model=ApiKeyResponse)
+async def register_new_site(
+    site_url: str,
+    admin_email: EmailStr,
+):
+    """
+    **Registra un nuevo sitio y genera API key**
+    """
+    try:
+        import hashlib
+        site_id = hashlib.sha256(site_url.encode()).hexdigest()[:16]
         
+        existing = supabase.table('site_stats')\
+            .select('api_key, created_at')\
+            .eq('site_id', site_id)\
+            .execute()
+        
+        if existing.data:
+            return ApiKeyResponse(
+                site_id=site_id,
+                api_key=existing.data[0]['api_key'],
+                created_at=existing.data[0].get('created_at', datetime.utcnow().isoformat()),
+                message="Este sitio ya está registrado. Aquí está tu API key."
+            )
+        
+        # Crear nuevo registro
+        api_key = Database.generate_api_key()
+        
+        new_site = {
+            'site_id': site_id,
+            'api_key': api_key,
+            'total_analyzed': 0,
+            'total_spam_blocked': 0,
+            'total_ham_approved': 0,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        
+        supabase.table('site_stats').insert(new_site).execute()
+        
+        return ApiKeyResponse(
+            site_id=site_id,
+            api_key=api_key,
+            created_at=new_site['created_at'],
+            message="Sitio registrado exitosamente. Guarda tu API key de forma segura."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error registrando sitio: {str(e)}"
+        )
+
+
 @router.get("/check-site")
 async def check_existing_site(site_url: str):
     """
-    Verifica si un sitio ya esta registrado y devuelve su API key
-    IMPORTANTE: Solo para recuperacion, validar por email seria mas seguro
+    Verifica si un sitio ya está registrado
     """
     try:
         import hashlib
@@ -213,7 +276,8 @@ async def check_existing_site(site_url: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-        
+
+
 @router.get("/stats", response_model=StatsResponse)
 async def get_statistics(
     site_id: str = Depends(verify_api_key)
@@ -242,42 +306,6 @@ async def get_statistics(
             detail=f"Error obteniendo estadísticas: {str(e)}"
         )
 
-@router.post("/retrain")
-async def trigger_retrain(
-    site_id: str = Depends(verify_api_key)
-):
-    """
-    **Fuerza el reentrenamiento del modelo**
-    """
-    try:
-        result = spam_detector.train_site_model(site_id)
-        
-        if not result['success']:
-            raise HTTPException(
-                status_code=400,
-                detail=result['message']
-            )
-        
-        # Actualizar timestamp - CORREGIDO
-        supabase.table('site_stats')\
-            .update({'last_retrain': datetime.utcnow().isoformat()})\
-            .eq('site_id', site_id)\
-            .execute()
-        
-        return {
-            "status": "success",
-            "message": result['message'],
-            "metrics": result['metrics'],
-            "samples_used": result['samples_used']
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error reentrenando modelo: {str(e)}"
-        )
 
 @router.get("/health")
 async def health_check():
@@ -291,172 +319,122 @@ async def health_check():
         "version": "1.0.0"
     }
 
-@router.post("/register-site", response_model=ApiKeyResponse)
-async def register_new_site(
-    site_url: str,
-    admin_email: EmailStr,
+
+# === ENDPOINTS DE ADMIN (PROTEGIDOS) ===
+
+@router.post("/admin/retrain-model")
+async def retrain_model_endpoint(
+    background_tasks: BackgroundTasks,
+    admin_key: str = Depends(verify_admin_api_key)
 ):
+    """
+    🔒 ENDPOINT PROTEGIDO - Solo para administradores
+    
+    Reentrenar el modelo ML con datos actualizados.
+    Requiere X-Admin-Key en los headers.
+    
+    Security:
+    - Requiere admin API key
+    - Rate limit: 1 request por hora
+    - Solo un reentrenamiento a la vez
+    """
+    
+    # 1. Verificar rate limit (1 request por hora)
+    check_admin_rate_limit(
+        identifier=f"retrain_{admin_key[:8]}", 
+        max_requests=1, 
+        window_minutes=60
+    )
+    
+    # 2. Verificar que no haya otro reentrenamiento en curso
+    if not acquire_retrain_lock():
+        raise HTTPException(
+            status_code=409,
+            detail="Model retraining already in progress. Check /admin/retrain-status"
+        )
+    
     try:
-        import hashlib
-        site_id = hashlib.sha256(site_url.encode()).hexdigest()[:16]
+        # 3. Ejecutar reentrenamiento en background
+        background_tasks.add_task(run_retrain_background)
         
-        existing = supabase.table('site_stats')\
-            .select('api_key')\
-            .eq('site_id', site_id)\
-            .execute()
-        
-        if existing.data:
-            # En lugar de error, devolver la API key existente
-            return ApiKeyResponse(
-                site_id=site_id,
-                api_key=existing.data[0]['api_key'],
-                created_at=existing.data[0].get('created_at', datetime.utcnow().isoformat()),
-                message="Este sitio ya esta registrado. Aqui esta tu API key."
-            )
-        
-        # Crear nuevo registro
-        api_key = Database.generate_api_key()
-        
-        new_site = {
-            'site_id': site_id,
-            'api_key': api_key,
-            'total_analyzed': 0,
-            'total_spam_blocked': 0,
-            'total_ham_approved': 0,
-            'created_at': datetime.utcnow().isoformat()
+        return {
+            "success": True,
+            "message": "Model retraining started in background",
+            "estimated_time": "5-15 minutes",
+            "check_status_at": "/api/v1/admin/retrain-status"
         }
         
-        # CORREGIDO
-        supabase.table('site_stats').insert(new_site).execute()
-        
-        return ApiKeyResponse(
-            site_id=site_id,
-            api_key=api_key,
-            created_at=new_site['created_at'],
-            message="Sitio registrado exitosamente. Guarda tu API key de forma segura."
-        )
-        
-    except HTTPException:
-        raise
     except Exception as e:
+        release_retrain_lock()
         raise HTTPException(
             status_code=500,
-            detail=f"Error registrando sitio: {str(e)}"
+            detail=f"Failed to start retraining: {str(e)}"
         )
-        
-@router.post("/admin/retrain-model")
-async def retrain_model_admin(api_key: str = Depends(verify_api_key)):
+
+
+@router.get("/admin/retrain-status")
+async def get_retrain_status_endpoint(
+    admin_key: str = Depends(verify_admin_api_key)
+):
     """
-    Endpoint para reentrenar el modelo (solo admin)
-    Requiere API key con permisos de admin
+    🔒 Verificar estado del reentrenamiento
     """
+    status = get_retrain_status()
+    
+    if status["is_running"]:
+        elapsed = (datetime.utcnow() - status["started_at"]).seconds
+        return {
+            "status": "running",
+            "started_at": status["started_at"].isoformat(),
+            "elapsed_seconds": elapsed,
+            "estimated_remaining": max(0, 900 - elapsed)  # 15 min estimado
+        }
+    else:
+        # Leer metadata del último entrenamiento
+        try:
+            import json
+            with open('models/model_metadata.json', 'r') as f:
+                metadata = json.load(f)
+            
+            return {
+                "status": "idle",
+                "last_training": metadata.get('trained_at'),
+                "last_accuracy": metadata.get('metrics', {}).get('test_accuracy'),
+                "training_samples": metadata.get('training_samples')
+            }
+        except:
+            return {"status": "idle", "last_training": None}
+
+
+async def run_retrain_background():
+    """
+    Función que ejecuta el reentrenamiento en background
+    """
+    import subprocess
+    
     try:
-        import subprocess
+        logger.info("🚀 Starting model retraining...")
         
         # Ejecutar script de reentrenamiento
         result = subprocess.run(
             ['python', 'app/retrain_model.py'],
             capture_output=True,
             text=True,
-            timeout=300  # 5 minutos max
+            timeout=1800  # 30 minutos máximo
         )
         
         if result.returncode == 0:
+            logger.info("✅ Model retrained successfully")
+            
             # Recargar modelo en memoria
             spam_detector.load_model('models/spam_model.pkl')
             
-            return {
-                "success": True,
-                "message": "Model retrained successfully",
-                "output": result.stdout
-            }
         else:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Retraining failed: {result.stderr}"
-            )
+            logger.error(f"❌ Retraining failed: {result.stderr}")
             
     except subprocess.TimeoutExpired:
-        raise HTTPException(
-            status_code=408,
-            detail="Retraining timeout (>5 min)"
-        )
+        logger.error("❌ Retraining timeout (>30 min)")
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )  
-        
-@router.post("/admin/init-training-data")
-async def init_training_data(
-    x_admin_secret: str = Header(..., alias="X-Admin-Secret")
-):
-    """
-    Endpoint temporal para inicializar datos de entrenamiento
-    IMPORTANTE: Proteger muy bien - Solo uso administrativo
-    """
-    settings = get_settings()
-    
-    if x_admin_secret != settings.admin_secret:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    
-    try:
-        # Importar la función del script
-        import sys
-        import os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-        
-        from scripts.init_training_data import insert_training_data
-        
-        result = insert_training_data()
-        return {
-            "status": "success",
-            "message": "Training data initialized",
-            "data": result
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/admin/train-model")
-async def train_global_model_endpoint(
-    x_admin_secret: str = Header(..., alias="X-Admin-Secret")
-):
-    """
-    Endpoint temporal para entrenar modelo global
-    IMPORTANTE: Proteger muy bien - Solo uso administrativo
-    """
-    # AGREGAR ESTOS IMPORTS AQUÍ DENTRO
-    from app.config import get_settings
-    from app.ml_model import spam_detector
-    import shutil
-    import os
-    
-    settings = get_settings()
-    
-    if x_admin_secret != settings.admin_secret:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    
-    try:
-        result = spam_detector.train_site_model('global')
-        
-        if result['success']:
-            
-            old_model = os.path.join(settings.ml_model_path, 'model_global.joblib')
-            old_scaler = os.path.join(settings.ml_model_path, 'scaler_global.joblib')
-            new_model = os.path.join(settings.ml_model_path, 'global_model.joblib')
-            new_scaler = os.path.join(settings.ml_model_path, 'global_scaler.joblib')
-            
-            os.makedirs(settings.ml_model_path, exist_ok=True)
-            
-            if os.path.exists(old_model):
-                shutil.copy(old_model, new_model)
-                shutil.copy(old_scaler, new_scaler)
-        
-        return {
-            "status": "success" if result['success'] else "error",
-            "metrics": result.get('metrics'),
-            "samples_used": result.get('samples_used'),
-            "message": result.get('message')
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ Retraining error: {str(e)}")
+    finally:
+        release_retrain_lock()
