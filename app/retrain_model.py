@@ -43,13 +43,26 @@ class ModelRetrainer:
     
     def __init__(self):
         self.settings = get_settings()
-        self.models_dir = Path('models')
+        
+        # Detectar si estamos en Railway con volumen persistente
+        volume_path = os.getenv('RAILWAY_VOLUME_MOUNT_PATH')
+        
+        if volume_path:
+            # Usar almacenamiento persistente de Railway
+            base_dir = Path(volume_path)
+            print(f"📦 Usando volumen persistente: {volume_path}")
+        else:
+            # Usar almacenamiento local (desarrollo)
+            base_dir = Path('.')
+            print("📁 Usando almacenamiento local")
+        
+        self.models_dir = base_dir / 'models'
         self.backups_dir = self.models_dir / 'backups'
         self.model_path = self.models_dir / 'spam_model.pkl'
         self.metadata_path = self.models_dir / 'model_metadata.json'
         
         # Crear directorios si no existen
-        self.models_dir.mkdir(exist_ok=True)
+        self.models_dir.mkdir(parents=True, exist_ok=True)
         self.backups_dir.mkdir(exist_ok=True)
     
     def fetch_training_data(self, min_samples=100):
@@ -61,7 +74,7 @@ class ModelRetrainer:
         print("="*60)
         
         try:
-            # CORREGIDO: Usar comment_content en lugar de content
+            # Usar comment_content (nombre correcto de la columna)
             response = supabase.table('comments_analyzed')\
                 .select('comment_content, actual_label, predicted_label, prediction_confidence')\
                 .not_.is_('actual_label', 'null')\
@@ -119,18 +132,19 @@ class ModelRetrainer:
         # Convertir labels a binario (1=spam, 0=ham)
         df['label'] = (df['actual_label'] == 'spam').astype(int)
         
-        # Eliminar duplicados
+        # Eliminar duplicados (ESTO reduce de 8721 a ~971)
         original_len = len(df)
         df = df.drop_duplicates(subset=['content'])
         duplicates_removed = original_len - len(df)
         
         if duplicates_removed > 0:
             print(f"🧹 Eliminados {duplicates_removed} duplicados")
+            print(f"   (Esto es correcto - evita memorización)")
         
         # Filtrar contenido muy corto
         df = df[df['content'].str.len() >= 10]
         
-        print(f"✅ Dataset final: {len(df)} ejemplos")
+        print(f"✅ Dataset final: {len(df)} ejemplos únicos")
         
         return df
     
@@ -281,6 +295,7 @@ class ModelRetrainer:
         metadata = {
             'trained_at': datetime.now().isoformat(),
             'training_samples': int(training_samples),
+            'unique_samples': int(training_samples),  # Después de eliminar duplicados
             'metrics': metrics,
             'model_version': '2.0'
         }
@@ -358,8 +373,9 @@ class ModelRetrainer:
         print(f"⏱️  Tiempo total: {elapsed:.1f}s")
         print(f"📊 Accuracy: {metrics['test_accuracy']:.4f}")
         print(f"📈 F1 Score: {metrics['f1_score']:.4f}")
-        print(f"🎯 Muestras: {len(df)}")
-        print("\n🔄 Modelo guardado y listo para usar")
+        print(f"🎯 Muestras únicas: {len(df)}")
+        print(f"📦 Guardado en volumen persistente")
+        print("\n🔄 Modelo listo - se cargará automáticamente en próximo deploy")
         print("="*60 + "\n")
         
         return True
