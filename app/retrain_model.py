@@ -61,9 +61,9 @@ class ModelRetrainer:
         print("="*60)
         
         try:
-            # Obtener comentarios con feedback confirmado (actual_label no nulo)
+            # CORREGIDO: Usar comment_content en lugar de content
             response = supabase.table('comments_analyzed')\
-                .select('content, actual_label, predicted_label, prediction_confidence')\
+                .select('comment_content, actual_label, predicted_label, prediction_confidence')\
                 .not_.is_('actual_label', 'null')\
                 .execute()
             
@@ -74,6 +74,9 @@ class ModelRetrainer:
                 return None
             
             df = pd.DataFrame(data)
+            
+            # Renombrar columna para consistencia
+            df = df.rename(columns={'comment_content': 'content'})
             
             print(f"✅ Obtenidos {len(df)} comentarios con feedback")
             
@@ -98,6 +101,8 @@ class ModelRetrainer:
             
         except Exception as e:
             print(f"❌ Error obteniendo datos: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def prepare_data(self, df):
@@ -192,9 +197,9 @@ class ModelRetrainer:
         
         # Métricas test
         test_accuracy = accuracy_score(y_test, y_pred_test)
-        test_precision = precision_score(y_test, y_pred_test)
-        test_recall = recall_score(y_test, y_pred_test)
-        test_f1 = f1_score(y_test, y_pred_test)
+        test_precision = precision_score(y_test, y_pred_test, zero_division=0)
+        test_recall = recall_score(y_test, y_pred_test, zero_division=0)
+        test_f1 = f1_score(y_test, y_pred_test, zero_division=0)
         
         print(f"\n🎯 Métricas en Train Set:")
         print(f"   Accuracy: {train_accuracy:.4f}")
@@ -354,8 +359,7 @@ class ModelRetrainer:
         print(f"📊 Accuracy: {metrics['test_accuracy']:.4f}")
         print(f"📈 F1 Score: {metrics['f1_score']:.4f}")
         print(f"🎯 Muestras: {len(df)}")
-        print("\n🔄 Reinicia la API en Railway para cargar el nuevo modelo:")
-        print("   Railway Dashboard → Deploy → Restart")
+        print("\n🔄 Modelo guardado y listo para usar")
         print("="*60 + "\n")
         
         return True
@@ -382,6 +386,9 @@ def main():
     
     sys.exit(0 if success else 1)
 
+
+if __name__ == '__main__':
+    main()
 
 if __name__ == '__main__':
     main()
