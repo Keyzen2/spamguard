@@ -371,8 +371,7 @@ async def retrain_model_endpoint(
             detail=f"Failed to start retraining: {str(e)}"
         )
 
-
-@router.get("/admin/retrain-status")
+@router.get("/admin/retrain-status", tags=["admin"])
 async def get_retrain_status_endpoint(
     admin_key: str = Depends(verify_admin_api_key)
 ):
@@ -387,23 +386,44 @@ async def get_retrain_status_endpoint(
             "status": "running",
             "started_at": status["started_at"].isoformat(),
             "elapsed_seconds": elapsed,
-            "estimated_remaining": max(0, 900 - elapsed)  # 15 min estimado
+            "estimated_remaining": max(0, 900 - elapsed)
         }
     else:
         # Leer metadata del último entrenamiento
+        # CORREGIDO: Buscar en volumen persistente
+        volume_path = os.getenv('RAILWAY_VOLUME_MOUNT_PATH')
+        
+        if volume_path:
+            metadata_path = Path(volume_path) / 'models' / 'model_metadata.json'
+        else:
+            metadata_path = Path('models') / 'model_metadata.json'
+        
         try:
-            import json
-            with open('models/model_metadata.json', 'r') as f:
-                metadata = json.load(f)
-            
+            if metadata_path.exists():
+                import json
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                
+                return {
+                    "status": "idle",
+                    "last_training": metadata.get('trained_at'),
+                    "last_accuracy": metadata.get('metrics', {}).get('test_accuracy'),
+                    "training_samples": metadata.get('training_samples'),
+                    "storage_location": str(metadata_path)
+                }
+            else:
+                return {
+                    "status": "idle",
+                    "last_training": None,
+                    "message": f"No training metadata found at {metadata_path}"
+                }
+        except Exception as e:
             return {
                 "status": "idle",
-                "last_training": metadata.get('trained_at'),
-                "last_accuracy": metadata.get('metrics', {}).get('test_accuracy'),
-                "training_samples": metadata.get('training_samples')
+                "last_training": None,
+                "error": str(e),
+                "metadata_path": str(metadata_path)
             }
-        except:
-            return {"status": "idle", "last_training": None}
 
 
 async def run_retrain_background():
