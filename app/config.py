@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Admin (para endpoints sensibles)
     admin_secret: str = "tu_clave_super_secreta_aqui_123456"
     
+    # Admin API Key (NUEVA - para reentrenamiento)
+    admin_api_key: str = ""  # Se configura en Railway como variable de entorno
+    
     model_config = {
         "env_file": ".env",
         "env_file_encoding": 'utf-8',
