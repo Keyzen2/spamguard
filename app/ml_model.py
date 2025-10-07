@@ -19,19 +19,31 @@ class SpamDetector:
         self._load_global_model()
     
     def _load_global_model(self):
-        """Carga el modelo global pre-entrenado"""
-        model_path = Path('models') / 'spam_model.pkl'
+        """Carga el modelo desde storage persistente o local"""
+        
+        # Detectar ubicación del modelo
+        volume_path = os.getenv('RAILWAY_VOLUME_MOUNT_PATH')
+        
+        if volume_path:
+            # Buscar en volumen persistente de Railway
+            model_path = Path(volume_path) / 'models' / 'spam_model.pkl'
+            print(f"📦 Buscando modelo en volumen persistente: {model_path}")
+        else:
+            # Buscar localmente (desarrollo)
+            model_path = Path('models') / 'spam_model.pkl'
+            print(f"📁 Buscando modelo localmente: {model_path}")
         
         if model_path.exists():
             try:
                 self.model = joblib.load(model_path)
                 self.is_trained = True
-                print("✅ Modelo global cargado exitosamente")
+                print(f"✅ Modelo cargado exitosamente desde: {model_path}")
             except Exception as e:
                 print(f"⚠️ Error cargando modelo: {e}")
                 self.is_trained = False
         else:
-            print("ℹ️ No existe modelo entrenado, usando reglas básicas")
+            print(f"ℹ️ No existe modelo entrenado en: {model_path}")
+            print("📝 API funcionará con reglas básicas hasta el primer entrenamiento")
             self.is_trained = False
     
     def load_model(self, model_path: str):
@@ -39,14 +51,22 @@ class SpamDetector:
         Carga un modelo desde un archivo .pkl
         
         Args:
-            model_path: Ruta al archivo del modelo
+            model_path: Ruta al archivo del modelo (puede ser relativa o con volumen)
         """
         try:
-            self.model = joblib.load(model_path)
+            # Si la ruta no es absoluta, verificar si usamos volumen
+            path = Path(model_path)
+            if not path.is_absolute():
+                volume_path = os.getenv('RAILWAY_VOLUME_MOUNT_PATH')
+                if volume_path and not str(path).startswith(volume_path):
+                    # Buscar en volumen
+                    path = Path(volume_path) / model_path
+            
+            self.model = joblib.load(path)
             self.is_trained = True
-            print(f"✅ Modelo cargado desde: {model_path}")
+            print(f"✅ Modelo recargado desde: {path}")
         except Exception as e:
-            print(f"❌ Error cargando modelo desde {model_path}: {e}")
+            print(f"❌ Error recargando modelo desde {model_path}: {e}")
             self.is_trained = False
     
     def predict(self, features: Dict) -> Dict:
