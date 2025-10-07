@@ -3,6 +3,8 @@ from typing import List, Optional
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 import logging
+import os
+from pathlib import Path
 
 from app.api.dependencies import (
     verify_api_key, 
