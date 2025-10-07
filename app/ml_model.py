@@ -1,92 +1,106 @@
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import joblib
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import os
-from datetime import datetime
-from app.database import Database
+from pathlib import Path
+
 from app.config import get_settings
 
 settings = get_settings()
 
 class SpamDetector:
-    """Modelo de ML para detectección de spam"""
+    """Modelo de ML para detección de spam"""
     
     def __init__(self):
         self.model = None
-        self.scaler = None
-        self.feature_names = None
         self.is_trained = False
         
-        # Intentar cargar modelo global pre-entrenado
+        # Intentar cargar modelo pre-entrenado
         self._load_global_model()
     
     def _load_global_model(self):
         """Carga el modelo global pre-entrenado"""
-        global_model_path = os.path.join(settings.ml_model_path, 'global_model.joblib')  # ← CAMBIO AQUÍ
-        global_scaler_path = os.path.join(settings.ml_model_path, 'global_scaler.joblib')  # ← CAMBIO AQUÍ
+        model_path = Path('models') / 'spam_model.pkl'
         
-        if os.path.exists(global_model_path) and os.path.exists(global_scaler_path):
+        if model_path.exists():
             try:
-                self.model = joblib.load(global_model_path)
-                self.scaler = joblib.load(global_scaler_path)
+                self.model = joblib.load(model_path)
                 self.is_trained = True
                 print("✅ Modelo global cargado exitosamente")
             except Exception as e:
-                print(f"⚠️ Error cargando modelo global: {e}")
-                self._create_baseline_model()
+                print(f"⚠️ Error cargando modelo: {e}")
+                self.is_trained = False
         else:
-            print("ℹ️ No existe modelo global, creando modelo baseline...")
-            self._create_baseline_model()
+            print("ℹ️ No existe modelo entrenado, usando reglas básicas")
+            self.is_trained = False
     
-    def _create_baseline_model(self):
-        """Crea un modelo baseline simple basado en reglas"""
-        # Este modelo será usado hasta que tengamos datos para entrenar
-        self.model = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=10,
-            random_state=42,
-            class_weight='balanced'
-        )
-        self.scaler = StandardScaler()
-        self.is_trained = False
-        print("✅ Modelo baseline creado")
+    def load_model(self, model_path: str):
+        """
+        Carga un modelo desde un archivo .pkl
+        
+        Args:
+            model_path: Ruta al archivo del modelo
+        """
+        try:
+            self.model = joblib.load(model_path)
+            self.is_trained = True
+            print(f"✅ Modelo cargado desde: {model_path}")
+        except Exception as e:
+            print(f"❌ Error cargando modelo desde {model_path}: {e}")
+            self.is_trained = False
     
     def predict(self, features: Dict) -> Dict:
         """
         Predice si un comentario es spam
-        Retorna: {is_spam: bool, confidence: float, score: float, reasons: list}
+        
+        Args:
+            features: Diccionario con características extraídas
+            
+        Returns:
+            Dict con: is_spam, confidence, score, reasons
         """
         
         # Si no hay modelo entrenado, usar reglas heurísticas
-        if not self.is_trained:
+        if not self.is_trained or self.model is None:
             return self._rule_based_prediction(features)
         
-        # Preparar features para el modelo
-        feature_vector = self._prepare_features(features)
-        
-        # Escalar
-        feature_scaled = self.scaler.transform([feature_vector])
-        
-        # Predicción
-        prediction = self.model.predict(feature_scaled)[0]
-        probabilities = self.model.predict_proba(feature_scaled)[0]
-        
-        # La probabilidad de spam (clase 1)
-        spam_probability = probabilities[1] if len(probabilities) > 1 else probabilities[0]
-        
-        # Razones de la predicción
-        reasons = self._get_prediction_reasons(features, spam_probability)
-        
-        return {
-            'is_spam': bool(prediction == 1),
-            'confidence': float(spam_probability),
-            'score': float(spam_probability * 100),
-            'reasons': reasons
-        }
+        try:
+            # El modelo es un pipeline de scikit-learn (TfidfVectorizer + MultinomialNB)
+            # Necesita el texto del comentario directamente
+            content = features.get('content', '')
+            
+            if not content:
+                # Fallback a reglas si no hay contenido
+                return self._rule_based_prediction(features)
+            
+            # Predicción del modelo
+            prediction = self.model.predict([content])[0]
+            probabilities = self.model.predict_proba([content])[0]
+            
+            # Probabilidad de spam (clase 1)
+            spam_probability = probabilities[1]
+            
+            # Determinar si es spam (umbral 0.5)
+            is_spam = prediction == 1
+            
+            # Generar razones
+            reasons = self._get_ml_prediction_reasons(
+                features, 
+                spam_probability, 
+                is_spam
+            )
+            
+            return {
+                'is_spam': bool(is_spam),
+                'confidence': float(spam_probability),
+                'score': float(spam_probability * 100),
+                'reasons': reasons
+            }
+            
+        except Exception as e:
+            print(f"⚠️ Error en predicción ML: {e}")
+            # Fallback a reglas
+            return self._rule_based_prediction(features)
     
     def _rule_based_prediction(self, features: Dict) -> Dict:
         """
@@ -96,9 +110,10 @@ class SpamDetector:
         reasons = []
         
         # URLs sospechosas
-        if features.get('url_count', 0) > 3:
+        url_count = features.get('url_count', 0)
+        if url_count > 3:
             score += 30
-            reasons.append(f"Contiene {features['url_count']} enlaces")
+            reasons.append(f"Contiene {url_count} enlaces")
         
         if features.get('has_suspicious_tld', 0) == 1:
             score += 25
@@ -154,138 +169,47 @@ class SpamDetector:
             'reasons': reasons[:5]
         }
     
-    def _prepare_features(self, features: Dict) -> List[float]:
-        """Convierte el dict de features a un vector para el modelo"""
-        
-        # Definir el orden de las features
-        if self.feature_names is None:
-            self.feature_names = [
-                'text_length', 'word_count', 'avg_word_length',
-                'url_count', 'has_url', 'url_to_text_ratio',
-                'unique_domains', 'has_suspicious_tld',
-                'spam_keyword_count', 'spam_keyword_density',
-                'special_char_ratio', 'uppercase_ratio', 'digit_ratio',
-                'exclamation_count', 'question_count', 'has_html',
-                'max_word_repetition', 'author_length', 'author_has_numbers',
-                'author_all_caps', 'author_is_short',
-                'email_domain_suspicious', 'email_has_numbers', 'email_length',
-                'has_author_url', 'author_url_suspicious',
-                'hour_of_day', 'is_night_time', 'is_weekend',
-                'has_user_agent', 'is_bot'
-            ]
-        
-        # Extraer valores en el orden correcto
-        vector = []
-        for feature_name in self.feature_names:
-            value = features.get(feature_name, 0)
-            # Convertir a float
-            if isinstance(value, bool):
-                value = 1.0 if value else 0.0
-            vector.append(float(value))
-        
-        return vector
-    
-    def _get_prediction_reasons(self, features: Dict, spam_prob: float) -> List[str]:
-        """Genera explicaciones de por qué se clasificó como spam o no"""
+    def _get_ml_prediction_reasons(
+        self, 
+        features: Dict, 
+        spam_prob: float,
+        is_spam: bool
+    ) -> List[str]:
+        """
+        Genera explicaciones basadas en la predicción del modelo ML
+        """
         reasons = []
         
-        if spam_prob > 0.7:
+        if is_spam:
             # Alta probabilidad de spam
+            reasons.append(f"Modelo ML detectó spam ({spam_prob*100:.1f}% confianza)")
+            
             if features.get('spam_keyword_count', 0) > 0:
                 reasons.append(f"Contiene palabras spam ({features['spam_keyword_count']})")
+            
             if features.get('url_count', 0) > 2:
                 reasons.append(f"Múltiples enlaces ({features['url_count']})")
+            
             if features.get('has_suspicious_tld', 0) == 1:
                 reasons.append("Dominios sospechosos")
+            
             if features.get('is_bot', 0) == 1:
                 reasons.append("Detectado como bot")
         else:
-            # Baja probabilidad de spam
-            reasons.append("Contenido parece legítimo")
+            # Comentario legítimo
+            reasons.append(f"Modelo ML: contenido legítimo ({(1-spam_prob)*100:.1f}% confianza)")
+            
             if features.get('text_length', 0) > 50:
                 reasons.append("Comentario con contenido sustancial")
+            
             if features.get('url_count', 0) == 0:
                 reasons.append("Sin enlaces sospechosos")
-        
-        return reasons[:3]
-    
-    async def train_site_model(self, site_id: str) -> Dict:
-        """
-        Entrena un modelo específico para un sitio
-        """
-        # Obtener datos de entrenamiento
-        training_data = await Database.get_training_data(site_id, limit=1000)
-        
-        if len(training_data) < settings.min_samples_for_retrain:
-            return {
-                'success': False,
-                'message': f'Se necesitan al menos {settings.min_samples_for_retrain} muestras etiquetadas'
-            }
-        
-        # Preparar datos
-        X = []
-        y = []
-        
-        for item in training_data:
-            features = item['features']
-            label = 1 if item['actual_label'] == 'spam' else 0
             
-            feature_vector = self._prepare_features(features)
-            X.append(feature_vector)
-            y.append(label)
+            if features.get('spam_keyword_count', 0) == 0:
+                reasons.append("Sin palabras spam detectadas")
         
-        X = np.array(X)
-        y = np.array(y)
-        
-        # Split train/test
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
-        
-        # Escalar
-        self.scaler = StandardScaler()
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        X_test_scaled = self.scaler.transform(X_test)
-        
-        # Entrenar modelo
-        self.model = RandomForestClassifier(
-            n_estimators=200,
-            max_depth=15,
-            min_samples_split=5,
-            min_samples_leaf=2,
-            random_state=42,
-            class_weight='balanced',
-            n_jobs=-1
-        )
-        
-        self.model.fit(X_train_scaled, y_train)
-        
-        # Evaluar
-        y_pred = self.model.predict(X_test_scaled)
-        
-        metrics = {
-            'accuracy': accuracy_score(y_test, y_pred),
-            'precision': precision_score(y_test, y_pred, zero_division=0),
-            'recall': recall_score(y_test, y_pred, zero_division=0),
-            'f1': f1_score(y_test, y_pred, zero_division=0)
-        }
-        
-        # Guardar modelo
-        model_path = os.path.join(settings.ml_model_path, f'model_{site_id}.joblib')  # ← CAMBIO AQUÍ
-        scaler_path = os.path.join(settings.ml_model_path, f'scaler_{site_id}.joblib')  # ← CAMBIO AQUÍ
-        
-        os.makedirs(settings.ml_model_path, exist_ok=True)  # ← CAMBIO AQUÍ
-        joblib.dump(self.model, model_path)
-        joblib.dump(self.scaler, scaler_path)
-        
-        self.is_trained = True
-        
-        return {
-            'success': True,
-            'metrics': metrics,
-            'samples_used': len(training_data),
-            'message': 'Modelo entrenado exitosamente'
-        }
+        return reasons[:5]
+
 
 # Instancia global del detector
 spam_detector = SpamDetector()
